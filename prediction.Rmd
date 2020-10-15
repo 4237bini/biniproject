@@ -1,0 +1,87 @@
+title: "Predicting Barbell Lift Quality"
+author: "bini"
+date: "10/13/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyr)
+library(caret)
+```
+
+## Introduction
+
+Using data from the Weight Lifting Exercise Dataset found at [this website](http://groupware.les.in.puc-rio.br/har), I will create a prediction algorithm that will predict the quality of a given exercise. 
+
+## Data Cleaning and Pre-processing
+
+First I will read in the testing and training data.
+
+```{r}
+train <- read.csv("train.csv")
+test <- read.csv("test.csv")
+```
+
+Let's remove all NA values from our data sets.
+```{r}
+trainData<- train[, colSums(is.na(train)) == 0]
+testData <- test[, colSums(is.na(test)) == 0]
+dim(trainData)
+```
+
+The first seven columns are primarily used for identification, and can safely be removed.
+```{r}
+trainData <- trainData[, -c(1:7)]
+testData <- testData[, -c(1:7)]
+dim(trainData)
+```
+
+Next, let's remove those variables that are near zero variance, then split our training data into train and validation sets. This will help us compute our out-of-sample error.
+```{r}
+set.seed(8675309) 
+NZV <- nearZeroVar(trainData)
+trainData <- trainData[, -NZV]
+inTrain <- createDataPartition(trainData$classe, p = 0.7, list = FALSE)
+trainData <- trainData[inTrain, ]
+valData <- trainData[-inTrain, ]
+dim(trainData)
+```
+
+Now that our data is cleaned up, let's start modelling.
+
+## Modelling
+We will first try classifying using a random forest. We will be using the `ranger` method in order to speed up computation, because ranger allows for the construction of trees in parallel.
+
+```{r}
+fit <- train(as.factor(classe) ~ ., data = trainData, trControl = trainControl(method = "cv", number = 5),, method = "ranger", verbose=FALSE)
+```
+
+## Evaluation
+Now let's predict on our validation set.
+```{r}
+validation_preds <- predict(fit, valData)
+confusionMatrix(validation_preds, as.factor(valData$classe))
+```
+
+Wow! This is really ogod accuracy. It seems almost like we overfit our data somehow. Let's try a generalized boosted model on the data, just to see how it compares.
+
+```{r}
+GBMfit  <- train(classe ~ ., data=trainData, method = "gbm", trControl = trainControl(method = "repeatedcv", number = 5, repeats = 1), verbose = FALSE)
+GBMpred <- predict(GBMfit, newdata=valData)
+confusionMatrix(GBMpred, as.factor(valData$classe))
+```
+So this one doesn't do quite as well, with 97.7% accuracy. This is still very impressive. Let's see how these model predictions compare with our true testing data.
+
+Finally, we can predict on our test set.
+
+```{r}
+forest_test_preds <- predict(fit, testData[,-53])
+gbm_test_preds <- predict(GBMfit, testData[,-53])
+print(forest_test_preds)
+print(gbm_test_preds)
+print(sum(forest_test_preds == gbm_test_preds)/length(forest_test_preds)*100)
+```
+
+Both models agree on their predictions, so I feel confident in submitting these answers.
